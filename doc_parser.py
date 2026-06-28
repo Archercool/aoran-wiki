@@ -6,10 +6,9 @@
 
 功能：
 1. 支持 .docx / .pdf / .pptx / .txt 格式文档解析
-2. 内置 PaddleOCR 中英双语识别（chi_sim + eng）
-3. 自动提取内嵌图片、截图、扫描页文字
-4. 文本清洗与标准化处理
-5. 批量文件夹遍历处理
+2. 自动提取文档正文、标题、列表、表格文本
+3. 文本清洗与标准化处理
+4. 批量文件夹遍历处理
 
 使用方法：
     from doc_parser import extract_full_text, batch_load_docs
@@ -26,8 +25,7 @@ import sys
 import re
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
+from typing import Dict, List, Optional
 from datetime import datetime
 
 # 配置日志
@@ -39,18 +37,6 @@ logger = logging.getLogger(__name__)
 
 # 支持的文件格式
 SUPPORTED_FORMATS = {'.txt', '.docx', '.pdf', '.pptx'}
-
-
-@dataclass
-class DocumentContent:
-    """文档内容数据类"""
-    file_path: str
-    file_name: str
-    file_type: str
-    content: str
-    metadata: dict
-    success: bool
-    error_message: Optional[str] = None
 
 
 def clean_text(text: str) -> str:
@@ -160,11 +146,9 @@ def extract_txt(file_path: str) -> str:
         return f.read().decode('utf-8', errors='ignore')
 
 
-def extract_with_unstructured(file_path: str) -> str:
+def extract_docx(file_path: str) -> str:
     """
-    使用 Unstructured 库解析文档
-    
-    支持格式：.docx, .pdf, .pptx
+    提取 Word 文档内容
     
     参数：
         file_path: 文件路径
@@ -173,226 +157,102 @@ def extract_with_unstructured(file_path: str) -> str:
         提取的文本内容
     """
     try:
-        from unstructured.partition.auto import partition
-        from unstructured.partition.pdf import partition_pdf
-        from unstructured.partition.docx import partition_docx
-        from unstructured.partition.pptx import partition_pptx
+        from docx import Document
         
-        file_type = detect_file_type(file_path)
-        
-        # 根据文件类型选择解析方法
-        if file_type == '.pdf':
-            # PDF 使用 hi_res 模式，启用 OCR
-            elements = partition_pdf(
-                filename=file_path,
-                strategy="hi_res",
-                ocr_languages=["chi_sim", "eng"],
-                extract_images_in_pdf=True,
-                infer_table_structure=True
-            )
-        elif file_type == '.docx':
-            elements = partition_docx(filename=file_path)
-        elif file_type == '.pptx':
-            elements = partition_pptx(filename=file_path)
-        else:
-            elements = partition(filename=file_path)
-        
-        # 提取所有元素的文本
+        doc = Document(file_path)
         text_parts = []
-        for element in elements:
-            if hasattr(element, 'text'):
-                text_parts.append(element.text)
-            elif hasattr(element, 'metadata'):
-                # 处理图片 OCR 结果
-                if hasattr(element.metadata, 'image_path'):
-                    text_parts.append(f"[图片内容: {element.text}]")
-                else:
-                    text_parts.append(str(element))
-            else:
-                text_parts.append(str(element))
+        
+        # 提取段落文本
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                text_parts.append(paragraph.text)
+        
+        # 提取表格文本
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = []
+                for cell in row.cells:
+                    if cell.text.strip():
+                        row_text.append(cell.text.strip())
+                if row_text:
+                    text_parts.append(' | '.join(row_text))
         
         return '\n\n'.join(text_parts)
         
     except Exception as e:
-        logger.warning(f"Unstructured 解析失败: {e}")
-        # 降级到 PaddleOCR 直接解析
-        return extract_with_paddleocr(file_path)
+        logger.error(f"DOCX 解析失败: {e}")
+        return ""
 
 
-def extract_with_paddleocr(file_path: str) -> str:
+def extract_pdf(file_path: str) -> str:
     """
-    使用 PaddleOCR 直接解析文档
-    
-    适用于扫描版 PDF、全图片 PPT 等场景
+    提取 PDF 文档内容
     
     参数：
         file_path: 文件路径
     
     返回：
-        OCR 识别的文本内容
+        提取的文本内容
     """
     try:
-        from paddleocr import PaddleOCR
+        from PyPDF2 import PdfReader
         
-        # 初始化 PaddleOCR
-        ocr = PaddleOCR(
-            use_angle_cls=True,
-            lang='ch',
-            use_gpu=False
-        )
-        
-        file_type = detect_file_type(file_path)
-        
-        # 对于 PDF，需要先转换为图片
-        if file_type == '.pdf':
-            return _ocr_pdf(file_path, ocr)
-        elif file_type in ['.docx', '.pptx']:
-            return _ocr_office(file_path, ocr)
-        else:
-            # 直接对文件进行 OCR
-            result = ocr.ocr(file_path, cls=True)
-            return _extract_ocr_text(result)
-            
-    except Exception as e:
-        logger.error(f"PaddleOCR 解析失败: {e}")
-        return ""
-
-
-def _ocr_pdf(file_path: str, ocr) -> str:
-    """
-    对 PDF 文件进行 OCR 处理
-    
-    参数：
-        file_path: PDF 文件路径
-        ocr: PaddleOCR 实例
-    
-    返回：
-        OCR 识别的文本
-    """
-    try:
-        import fitz  # PyMuPDF
-        
-        doc = fitz.open(file_path)
+        reader = PdfReader(file_path)
         text_parts = []
         
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            
-            # 将页面转换为图片
-            pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))
-            img_bytes = pix.tobytes("png")
-            
-            # OCR 识别
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                tmp.write(img_bytes)
-                tmp_path = tmp.name
-            
-            try:
-                result = ocr.ocr(tmp_path, cls=True)
-                page_text = _extract_ocr_text(result)
-                if page_text.strip():
-                    text_parts.append(f"[第 {page_num + 1} 页]\n{page_text}")
-            finally:
-                os.unlink(tmp_path)
-        
-        doc.close()
-        return '\n\n'.join(text_parts)
-        
-    except ImportError:
-        logger.warning("PyMuPDF 未安装，尝试使用 pdf2image")
-        return _ocr_pdf_with_pdf2image(file_path, ocr)
-
-
-def _ocr_pdf_with_pdf2image(file_path: str, ocr) -> str:
-    """
-    使用 pdf2image 对 PDF 进行 OCR
-    
-    参数：
-        file_path: PDF 文件路径
-        ocr: PaddleOCR 实例
-    
-    返回：
-        OCR 识别的文本
-    """
-    try:
-        from pdf2image import convert_from_path
-        
-        images = convert_from_path(file_path, dpi=300)
-        text_parts = []
-        
-        for i, img in enumerate(images):
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                img.save(tmp.name, 'PNG')
-                tmp_path = tmp.name
-            
-            try:
-                result = ocr.ocr(tmp_path, cls=True)
-                page_text = _extract_ocr_text(result)
-                if page_text.strip():
-                    text_parts.append(f"[第 {i + 1} 页]\n{page_text}")
-            finally:
-                os.unlink(tmp_path)
+        for page_num, page in enumerate(reader.pages):
+            page_text = page.extract_text()
+            if page_text and page_text.strip():
+                text_parts.append(f"[第 {page_num + 1} 页]\n{page_text}")
         
         return '\n\n'.join(text_parts)
         
     except Exception as e:
-        logger.error(f"pdf2image OCR 失败: {e}")
+        logger.error(f"PDF 解析失败: {e}")
         return ""
 
 
-def _ocr_office(file_path: str, ocr) -> str:
+def extract_pptx(file_path: str) -> str:
     """
-    对 Office 文档（DOCX/PPTX）进行 OCR
+    提取 PowerPoint 文档内容
     
     参数：
         file_path: 文件路径
-        ocr: PaddleOCR 实例
     
     返回：
-        OCR 识别的文本
+        提取的文本内容
     """
     try:
-        # 先使用 Unstructured 提取文本
-        from unstructured.partition.auto import partition
+        from pptx import Presentation
         
-        elements = partition(filename=file_path)
+        prs = Presentation(file_path)
         text_parts = []
         
-        for element in elements:
-            if hasattr(element, 'text'):
-                text_parts.append(element.text)
+        for slide_num, slide in enumerate(prs.slides, 1):
+            slide_texts = []
+            
+            for shape in slide.shapes:
+                if hasattr(shape, "text") and shape.text.strip():
+                    slide_texts.append(shape.text)
+                
+                # 提取表格内容
+                if shape.has_table:
+                    for row in shape.table.rows:
+                        row_text = []
+                        for cell in row.cells:
+                            if cell.text.strip():
+                                row_text.append(cell.text.strip())
+                        if row_text:
+                            slide_texts.append(' | '.join(row_text))
+            
+            if slide_texts:
+                text_parts.append(f"[第 {slide_num} 页]\n" + '\n'.join(slide_texts))
         
         return '\n\n'.join(text_parts)
         
     except Exception as e:
-        logger.error(f"Office OCR 失败: {e}")
+        logger.error(f"PPTX 解析失败: {e}")
         return ""
-
-
-def _extract_ocr_text(result) -> str:
-    """
-    从 PaddleOCR 结果中提取文本
-    
-    参数：
-        result: OCR 识别结果
-    
-    返回：
-        提取的文本
-    """
-    if not result or not result[0]:
-        return ""
-    
-    text_parts = []
-    for line in result[0]:
-        if line and len(line) >= 2:
-            # line[1] 是识别结果，包含 (text, confidence)
-            text_tuple = line[1]
-            if isinstance(text_tuple, tuple) and len(text_tuple) >= 1:
-                text_parts.append(text_tuple[0])
-    
-    return '\n'.join(text_parts)
 
 
 def extract_full_text(file_path: str) -> str:
@@ -426,8 +286,12 @@ def extract_full_text(file_path: str) -> str:
         # 根据文件类型选择解析方法
         if file_type == '.txt':
             raw_text = extract_txt(file_path)
-        elif file_type in ['.docx', '.pdf', '.pptx']:
-            raw_text = extract_with_unstructured(file_path)
+        elif file_type == '.docx':
+            raw_text = extract_docx(file_path)
+        elif file_type == '.pdf':
+            raw_text = extract_pdf(file_path)
+        elif file_type == '.pptx':
+            raw_text = extract_pptx(file_path)
         else:
             logger.warning(f"不支持的文件格式: {file_type}")
             return ""
