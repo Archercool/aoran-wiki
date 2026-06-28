@@ -6,11 +6,30 @@
 - `outputs/`: 查询结果和报告。
 
 ## 处理新资料（当 `raw/` 中有新文件时）
-1. 读取 `wiki/INDEX.md` 了解现有文章。
-2. 识别资料中的新概念，检查是否已在 `wiki/` 中存在。
-3. 为每个新概念创建文章，或更新现有文章。
-4. 在相关文章间添加反向链接。
-5. 更新 `wiki/INDEX.md`。
+1. 运行文档解析：`python doc_parser.py` 或调用 `batch_load_docs("raw/")`
+2. 解析后的文本内容可直接用于向量化和分块
+3. 读取 `wiki/INDEX.md` 了解现有文章。
+4. 识别资料中的新概念，检查是否已在 `wiki/` 中存在。
+5. 为每个新概念创建文章，或更新现有文章。
+6. 在相关文章间添加反向链接。
+7. 更新 `wiki/INDEX.md`。
+
+## 文档解析（自动化流程）
+- **解析模块**：`doc_parser.py`
+- **支持格式**：`.docx` / `.pdf` / `.pptx` / `.txt`
+- **OCR 引擎**：PaddleOCR（中英双语）
+- **使用方法**：
+  ```python
+  from doc_parser import extract_full_text, batch_load_docs
+  
+  # 单文件解析
+  text = extract_full_text("raw/document.pdf")
+  
+  # 批量文件夹解析
+  docs = batch_load_docs("raw/")
+  for path, content in docs.items():
+      print(f"{path}: {len(content)} 字符")
+  ```
 
 ## INDEX.md 格式
 每行一条：`[文章标题](文件名.md) - 一句话摘要`
