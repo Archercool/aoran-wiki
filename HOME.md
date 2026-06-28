@@ -6,30 +6,7 @@
 
 ## 分类导航
 
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px;">
-
-<div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; background: #f9f9f9;">
-<h3>AI</h3>
-<p>人工智能、机器学习、深度学习相关知识</p>
-<ul>
-<li><a href="wiki/AI/机器学习.md">机器学习</a></li>
-<li><a href="wiki/AI/深度学习.md">深度学习</a></li>
-</ul>
-</div>
-
-<div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; background: #f9f9f9;">
-<h3>编程</h3>
-<p>编程语言、开发工具、最佳实践</p>
-<p><em>内容待添加</em></p>
-</div>
-
-<div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; background: #f9f9f9;">
-<h3>工具</h3>
-<p>效率工具、AI 工具、工作流</p>
-<p><em>内容待添加</em></p>
-</div>
-
-</div>
+<div id="category-cards"></div>
 
 ---
 

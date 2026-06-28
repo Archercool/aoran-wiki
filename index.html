@@ -26,5 +26,73 @@
   <script src="https://cdn.jsdelivr.net/npm/docsify@4"></script>
   <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs/components/prism-python.min.js"></script>
+  <script>
+    window.$docsify = window.$docsify || {};
+    window.$docsify.plugins = [
+      function(hook, vm) {
+        hook.doneEach(function() {
+          var cardsContainer = document.getElementById('category-cards');
+          if (!cardsContainer) return;
+
+          var sidebar = document.querySelector('.sidebar');
+          if (!sidebar) return;
+
+          var nav = sidebar.querySelector('.sidebar-nav');
+          if (!nav) return;
+
+          var items = nav.querySelectorAll('.sidebar-nav > li');
+          var cards = [];
+
+          items.forEach(function(item) {
+            var strong = item.querySelector('strong');
+            if (!strong) return;
+
+            var categoryName = strong.textContent.trim();
+            var links = item.querySelectorAll('ul a');
+            var articles = [];
+
+            links.forEach(function(link) {
+              if (link.textContent.trim() === '(待添加)') return;
+              articles.push({
+                title: link.textContent.trim(),
+                href: link.getAttribute('href')
+              });
+            });
+
+            if (articles.length > 0 || categoryName) {
+              cards.push({
+                name: categoryName,
+                articles: articles
+              });
+            }
+          });
+
+          if (cards.length === 0) return;
+
+          var html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px;">';
+
+          cards.forEach(function(card) {
+            html += '<div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; background: #f9f9f9;">';
+            html += '<h3>' + card.name + '</h3>';
+
+            if (card.articles.length > 0) {
+              html += '<ul>';
+              card.articles.forEach(function(article) {
+                html += '<li><a href="' + article.href + '">' + article.title + '</a></li>';
+              });
+              html += '</ul>';
+            } else {
+              html += '<p><em>内容待添加</em></p>';
+            }
+
+            html += '</div>';
+          });
+
+          html += '</div>';
+          cardsContainer.innerHTML = html;
+        });
+      }
+    ];
+  </script>
 </body>
 </html>
